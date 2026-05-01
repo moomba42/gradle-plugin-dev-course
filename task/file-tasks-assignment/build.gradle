@@ -1,0 +1,60 @@
+import java.nio.file.Files
+import java.nio.file.Paths
+import java.nio.file.StandardCopyOption
+import java.nio.file.attribute.BasicFileAttributes
+import java.time.LocalDateTime
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+
+tasks.register("clean") {
+    group("files")
+    description("Clean build directory")
+    def folderName = project.property("tasks.files.folder") as String
+    def target = project.layout.buildDirectory.dir(folderName).get().asFile.absolutePath
+    delete(target)
+}
+
+tasks.register("sortFiles") {
+    dependsOn("clean")
+    group("files")
+    description("Sorts files in given directory into build.files subdirectories based on the sorting type [creationDate,extension]")
+    doLast {
+        def folderName = project.property("tasks.files.folder") as String
+        def mode = project.findProperty("tasks.files.sortType") as String
+        if (mode == null) {
+            mode = "creationDate"
+        }
+
+        def source = project.layout.projectDirectory.dir(folderName).asFile
+        def target = project.layout.buildDirectory.dir(folderName).get().asFile.absolutePath
+
+        for (final def file in source.listFiles()) {
+            def targetFolderName = "unknown"
+            switch (mode) {
+                case "extension":
+                    def elements = file.name.split("\\.")
+                    if (elements.size() > 1) {
+                        // Has an extension
+                        targetFolderName = elements[elements.size() - 1]
+                    }
+                    break
+                case "creationDate":
+                    def fileAttributes = Files.readAttributes(file.toPath(), BasicFileAttributes.class)
+                    def creationTime = LocalDateTime.ofInstant(
+                            fileAttributes.creationTime().toInstant(),
+                            ZoneId.systemDefault())
+                    def formatter = DateTimeFormatter.ofPattern("MM-YYYY")
+                    targetFolderName = formatter.format(creationTime)
+                    break
+                default:
+                    throw new IllegalArgumentException("tasks.files.sortType only accepts one of these values: [creationDate, extension]")
+            }
+
+            def targetFolderPath = Paths.get(target, targetFolderName)
+            def targetFilePath = Paths.get(target, targetFolderName, file.name)
+
+            Files.createDirectories(targetFolderPath)
+            Files.copy(file.toPath(), targetFilePath, StandardCopyOption.REPLACE_EXISTING)
+        }
+    }
+}
